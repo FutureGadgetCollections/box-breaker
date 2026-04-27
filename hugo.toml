@@ -1,0 +1,20 @@
+baseURL = "/"
+languageCode = "en-us"
+title = "Box Breaker"
+theme = "box-breaker"
+
+[params]
+  description = "Break down and optimize ROI on sealed Magic products"
+  backendURL = "http://localhost:8080"
+  version = "dev"
+
+  # Market tracker data sources
+  [params.github.data]
+    repo = "FutureGadgetCollections/collection-market-tracker-data"
+  [params.gcs.data]
+    bucket = "collection-tracker-data"
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true

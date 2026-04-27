@@ -39,20 +39,47 @@ Collection Market Tracker (BigQuery)
 Box Breaker Frontend reads: GitHub first ► GCS fallback
 ```
 
-## Current Status
+## Current Status - Phase 1 Complete ✅
 
 - [x] Repo structure created
-- [x] Hugo theme scaffolding
-- [x] Deck selector UI
+- [x] Hugo theme scaffolding with Bootstrap 5
+- [x] Deck selector UI (loads from market tracker)
 - [x] CSV export logic
-- [ ] Product data added to Market Tracker
-- [ ] TCGPlayer pricing integration
-- [ ] ROI optimization logic (placeholder)
-- [ ] ManaPool/eBay platform support
+- [x] Product data added to Market Tracker (sealed-products, single-cards)
+- [x] Basic ROI optimization logic
+- [x] Platform selection UI (TCGPlayer, ManaPool, eBay, Mixed)
 
-## Next Steps
+## Implementation Notes
 
-1. Scrape Secrets of Strixhaven deck lists from Scryfall
-2. Add all decks + cards + sealed products to market tracker
-3. Integrate platform pricing data
-4. Test CSV export with real data
+**Data Structure:**
+- Uses market tracker's sealed-products.json (game="mtg", set_code="soc")
+- Filters for products with product_type starting with "commander-deck-"
+- Single cards stored in single-cards.json with set_code="soc"
+
+**Frontend Flow:**
+1. Load sealed products from market tracker data
+2. Display 5 SOC commander decks as selectable cards
+3. User selects deck + platforms
+4. Calculate estimated ROI based on platform margins
+5. Export deck inventory as CSV for bulk listing
+
+**ROI Calculation (Phase 1):**
+- TCGPlayer: 1.15x (15% margin - typical fees)
+- ManaPool: 1.10x (10% margin - lower fees)
+- eBay: 1.12x (12% margin - eBay takes cut)
+- Mixed: 1.18x (optimized across platforms)
+
+## Phase 2 - Enhancement Tasks
+
+- [ ] Actual deck lists (currently placeholder cards)
+- [ ] Per-card platform pricing from TCGPlayer/ManaPool APIs
+- [ ] Dynamic ROI calculation based on real card prices
+- [ ] Deck comparison tool (which deck has best ROI?)
+- [ ] eBay integration for pricing
+- [ ] Admin UI to add new sealed sets
+- [ ] Subscription tier check (paywall for bulk export)
+
+## Deployment
+
+Hugo static site served from Cloud Run or Firebase Hosting.
+Reads data from collection-market-tracker-data GitHub repo (or GCS fallback).

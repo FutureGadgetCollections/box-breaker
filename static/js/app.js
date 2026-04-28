@@ -181,13 +181,13 @@ function renderDeckGrid() {
                 <div class="card h-100 ${isMeta ? 'border-warning border-2' : ''}" style="cursor:pointer" data-deck="${d.product_type}">
                     <div style="background:#222;height:180px;overflow:hidden;display:flex;align-items:center;justify-content:center;${isMeta?'background:linear-gradient(135deg,#7e57c2,#26a69a)':''}">
                         ${isMeta
-                            ? '<div class="text-white text-center"><div style="font-size:3rem">📦</div><div class="fw-bold">All 5 Decks Combined</div></div>'
+                            ? '<div class="text-white text-center"><div style="font-size:3rem">📦</div><div class="fw-bold">Case · All 5 Decks</div></div>'
                             : `<img id="${imgId}" alt="" style="display:none;width:100%;object-fit:cover"><span id="${imgId}-fallback" class="text-secondary small">Loading commander art…</span>`}
                     </div>
                     <div class="card-body">
-                        <h6 class="card-title mb-1">${isMeta ? "Set of 5 (combined)" : deckShortName(d)}</h6>
+                        <h6 class="card-title mb-1">${isMeta ? "Case — Set of 5 commander decks" : deckShortName(d)}</h6>
                         ${isMeta
-                            ? '<div class="small text-warning mb-1">📋 One CSV per platform — quantities merged across all 5 decks</div>'
+                            ? '<div class="small text-warning mb-1">📋 Crack the whole case — one CSV per platform, quantities merged across all 5 decks</div>'
                             : (cmd ? `<div class="small text-muted mb-1">⚔ ${cmd.name}</div>` : '')}
                         <div class="small">
                             MSRP <strong>${fmtUsd(d.msrp)}</strong>
@@ -236,6 +236,7 @@ function renderDeckGrid() {
 
 function deckShortName(deck) {
     if (!deck) return "";
+    if (deck.product_type === "commander-deck-set-of-5") return "Case (all 5 decks)";
     const name = deck.name || deck.product_type;
     const m = name.match(/Deck\s+(.+)$/i);
     return m ? m[1] : name;

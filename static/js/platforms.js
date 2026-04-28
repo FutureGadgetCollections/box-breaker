@@ -77,12 +77,13 @@ function computePlan(cards, mode, overrides, rules) {
             net = netForPrice(list, mode);
         }
 
+        const qty = card.quantity || 1;
         if (net != null) {
-            totalGross += list;
-            totalNet += net;
-            cardsWithPrice++;
+            totalGross += list * qty;
+            totalNet += net * qty;
+            cardsWithPrice += qty;
         } else {
-            cardsWithoutPrice++;
+            cardsWithoutPrice += qty;
         }
 
         lines.push({ ...card, assigned, list, net, override: !!override });

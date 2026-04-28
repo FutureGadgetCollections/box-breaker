@@ -49,7 +49,7 @@ function exportTcgPlayer(lines, deckLabel) {
             "Number": l.card_number,
             "Rarity": l.rarity || "",
             "Condition": "Near Mint",
-            "Add to Quantity": 1,
+            "Add to Quantity": l.quantity || 1,
             "TCG Marketplace Price": (l.list ?? 0).toFixed(2),
         }));
     if (!rows.length) return null;
@@ -73,7 +73,7 @@ function exportManaPool(lines, deckLabel) {
         .map(l => ({
             "product_id": l.manapool_skus.nf,
             "finish": "NF",
-            "quantity": 1,
+            "quantity": l.quantity || 1,
             "price": (l.list ?? 0).toFixed(2),
             "condition": "NM",
             "language": "EN",
@@ -100,7 +100,7 @@ function exportEbay(lines, deckLabel) {
         .map(l => ({
             "Title": `MTG ${l.set_code.toUpperCase()} #${l.card_number} ${l.name} NM`,
             "Custom Label (SKU)": `${l.set_code}-${l.card_number}`,
-            "Quantity": 1,
+            "Quantity": l.quantity || 1,
             "Start Price": (l.list ?? 0).toFixed(2),
             "Condition": "Near Mint",
         }));

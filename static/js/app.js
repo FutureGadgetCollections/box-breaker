@@ -12,7 +12,15 @@ const State = {
     overrides: {},         // { cardKey: platform }
     rules: typeof loadRules === "function" ? loadRules() : { basis:"platform", markupPct:0, floor:0, ceiling:0, roundTo:0.01 },
     showRules: false,
+    sort: { col: "card_number", dir: "asc" },  // table sort: column key + 'asc'|'desc'
 };
+
+const RARITY_ORDER = { mythic: 0, rare: 1, uncommon: 2, common: 3, special: 4, bonus: 4, "basic land": 5 };
+function rarityRank(r) {
+    if (!r) return 99;
+    const k = String(r).toLowerCase();
+    return k in RARITY_ORDER ? RARITY_ORDER[k] : 50;
+}
 
 document.addEventListener("DOMContentLoaded", async () => {
     showSpinner(true);
@@ -249,7 +257,7 @@ function renderDeckDetail() {
                 <div>
                     <strong>${deckShortName(deck)}</strong>
                     <span class="text-light-emphasis small ms-2">
-                        (${State.activeCards.length} unique cards · MSRP ${fmtUsd(deck.msrp)})
+                        (${State.activeCards.length} unique / ${State.activeCards.reduce((a,c) => a + (c.quantity||1), 0)} total · MSRP ${fmtUsd(deck.msrp)})
                     </span>
                 </div>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -295,6 +303,18 @@ function renderDeckDetail() {
     });
 
     bindRulesPanel();
+
+    document.querySelectorAll(".sortable").forEach(th => {
+        th.addEventListener("click", () => {
+            const col = th.dataset.sort;
+            if (State.sort.col === col) {
+                State.sort.dir = State.sort.dir === "asc" ? "desc" : "asc";
+            } else {
+                State.sort = { col, dir: "asc" };
+            }
+            renderDeckDetail();
+        });
+    });
 
     document.querySelectorAll(".override-select").forEach(sel => {
         sel.addEventListener("change", e => {
@@ -452,8 +472,57 @@ function updateRule(patch) {
     renderDeckDetail();
 }
 
+const SORT_KEYS = {
+    card_number: l => [l.set_code || "", numericCnKey(l.card_number)],
+    name:        l => (l.name || "").toLowerCase(),
+    rarity:      l => [rarityRank(l.rarity), (l.name || "").toLowerCase()],
+    qty:         l => -(l.quantity || 1),
+    tcg:         l => -(l.prices.tcgplayer ?? -Infinity),
+    mp:          l => -(l.prices.manapool ?? -Infinity),
+    list:        l => -(l.list ?? -Infinity),
+    net:         l => -(l.net ?? -Infinity),
+    platform:    l => l.assigned || "zzz",
+};
+
+function numericCnKey(cn) {
+    // "12" -> [12, ""], "12s" -> [12, "s"], "abc" -> [Infinity, "abc"]
+    const m = String(cn || "").match(/^(\d+)(.*)$/);
+    if (!m) return [Infinity, String(cn || "").toLowerCase()];
+    return [parseInt(m[1], 10), m[2].toLowerCase()];
+}
+
+function sortLines(lines, sort) {
+    const keyFn = SORT_KEYS[sort.col] || SORT_KEYS.card_number;
+    const out = lines.slice().sort((a, b) => {
+        const ka = keyFn(a), kb = keyFn(b);
+        const cmp = compareKeys(ka, kb);
+        return sort.dir === "desc" ? -cmp : cmp;
+    });
+    return out;
+}
+
+function compareKeys(a, b) {
+    if (Array.isArray(a) && Array.isArray(b)) {
+        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+            const c = compareKeys(a[i], b[i]);
+            if (c !== 0) return c;
+        }
+        return 0;
+    }
+    if (a === b) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    return a < b ? -1 : 1;
+}
+
+function sortIndicator(col) {
+    if (State.sort.col !== col) return '<span class="text-muted small ms-1">↕</span>';
+    return State.sort.dir === "asc" ? ' <span class="small">↑</span>' : ' <span class="small">↓</span>';
+}
+
 function renderCardTable(plan) {
-    const rows = plan.lines.map(line => {
+    const sortedLines = sortLines(plan.lines, State.sort);
+    const rows = sortedLines.map(line => {
         const key = `${line.set_code}|${line.card_number}`;
         const tcg = line.prices.tcgplayer;
         const mp = line.prices.manapool;
@@ -465,12 +534,14 @@ function renderCardTable(plan) {
             tcgUrl ? `<a href="${tcgUrl}" target="_blank" rel="noopener" class="badge text-bg-primary text-decoration-none ms-1" title="View on TCGPlayer">TCG ↗</a>` : "",
             `<a href="${mpUrl}" target="_blank" rel="noopener" class="badge text-bg-secondary text-decoration-none ms-1" title="View on Mana Pool">MP ↗</a>`,
         ].join("");
+        const qty = line.quantity || 1;
         return `
             <tr>
                 <td class="text-muted small">${line.set_code.toUpperCase()} #${line.card_number}</td>
                 <td><img class="card-thumb" src="${cardImageUrl(line.set_code, line.card_number)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${scryfallImageUrl(line.set_code, line.card_number)}'"></td>
                 <td>${line.name}${links}</td>
-                <td class="text-end">1</td>
+                <td class="small">${rarityBadge(line.rarity)}</td>
+                <td class="text-end ${qty>1?'fw-bold':''}">${qty}</td>
                 <td class="text-end" title="gross">${fmtUsd(tcg)}</td>
                 <td class="text-end" title="gross">${fmtUsd(mp)}</td>
                 <td class="text-end fw-bold ${assigned ? 'table-success' : ''}" title="rules-applied list price">${fmtUsd(line.list)}</td>
@@ -486,17 +557,24 @@ function renderCardTable(plan) {
             </tr>`;
     }).join("");
 
+    const th = (col, label, extraClass = "") =>
+        `<th class="${extraClass} sortable" data-sort="${col}" style="cursor:pointer;user-select:none">${label}${sortIndicator(col)}</th>`;
+
     return `
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>Set/#</th><th></th><th>Card</th><th class="text-end">Qty</th>
-                        <th class="text-end">TCG mkt</th>
-                        <th class="text-end">MP from</th>
-                        <th class="text-end">List $</th>
-                        <th class="text-end">Net</th>
-                        <th>Platform</th>
+                        ${th("card_number", "Set/#")}
+                        <th></th>
+                        ${th("name", "Card")}
+                        ${th("rarity", "Rarity")}
+                        ${th("qty", "Qty", "text-end")}
+                        ${th("tcg", "TCG mkt", "text-end")}
+                        ${th("mp", "MP from", "text-end")}
+                        ${th("list", "List $", "text-end")}
+                        ${th("net", "Net", "text-end")}
+                        ${th("platform", "Platform")}
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -507,6 +585,18 @@ function renderCardTable(plan) {
               eBay uses TCGPlayer market as a proxy until eBay scraping is wired up.
             </small>
         </div>`;
+}
+
+function rarityBadge(r) {
+    if (!r) return "";
+    const k = String(r).toLowerCase();
+    const cls = {
+        mythic: "text-bg-warning",
+        rare:   "text-bg-info",
+        uncommon: "text-bg-secondary",
+        common: "text-bg-light text-dark border",
+    }[k] || "text-bg-light text-dark border";
+    return `<span class="badge ${cls}">${k[0]?.toUpperCase() || "?"}</span>`;
 }
 
 function cardImageUrl(setCode, cardNumber) {

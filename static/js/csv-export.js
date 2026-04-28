@@ -1,13 +1,20 @@
 /**
- * CSV exporters for each platform's bulk-listing format.
+ * CSV exporters for each marketplace's bulk-listing format.
  *
- * Reference docs:
- *   TCGPlayer mass upload: TCGplayer ID, Quantity, Price (Near Mint, English, NF)
- *     https://tcgplayer.com/dashboard/seller/help (CSV import format)
- *   Mana Pool seller import: product_id, finish, quantity, price, condition,
- *     language. product_id = products_mtg_single.id (per-finish UUID).
- *   eBay listings: simplified — Title, SKU, Price, Quantity. eBay's File
- *     Exchange has many fields; we ship a minimal-viable CSV.
+ * These mirror the canonical formats from sorting-hat/static/js/csv.js
+ * (verified working on real seller imports). Two key facts that always
+ * trip people up:
+ *
+ *   - TCGPlayer's mass-upload "TCGplayer Id" column is the SKU id
+ *     (per product+condition+variant+language), NOT the product id.
+ *     Without the matching SKU, every row imports as
+ *     "does not match product details".
+ *
+ *   - Mana Pool's seller-import "product_id" is `products_mtg_single.id`
+ *     (per-finish UUID), NOT the TCGPlayer product id.
+ *
+ * Both are looked up from collection-market-tracker-data via
+ * tcgplayer-skus.json and manapool-skus.json respectively.
  */
 
 function downloadCsv(filename, content) {
@@ -23,112 +30,105 @@ function downloadCsv(filename, content) {
 function csvEscape(v) {
     if (v == null) return "";
     const s = String(v);
-    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
 }
 
 function rowsToCsv(headers, rows) {
-    const out = [headers.join(",")];
-    for (const r of rows) out.push(headers.map(h => csvEscape(r[h])).join(","));
-    return out.join("\r\n") + "\r\n";
+    const lines = [headers.join(",")];
+    for (const r of rows) lines.push(headers.map(h => csvEscape(r[h])).join(","));
+    return lines.join("\r\n") + "\r\n";
 }
 
 function exportTcgPlayer(lines, deckLabel) {
-    /**
-     * TCGPlayer mass-upload format.
-     *
-     * TCGPlayer matches each row by `TCGplayer Id` (strict). When we
-     * supply descriptive columns (Set Name, Product Name, Rarity,
-     * Product Line, Number) the importer validates them against its
-     * canonical product record and fails with "does not match product
-     * details" if anything differs in case, spacing, or formatting —
-     * e.g. our "SOC" vs canonical "Secrets of Strixhaven Commander",
-     * or lowercase "mythic" vs "Mythic".
-     *
-     * Sticking to the four columns that are strictly required for
-     * adding inventory keeps imports succeeding regardless of how
-     * TCGPlayer punctuates the rest. The seller's dashboard fills in
-     * the descriptive fields automatically from the matched product.
-     */
-    const rows = lines
-        .filter(l => !l.hidden && l.assigned === "tcgplayer" && l.tcgplayer_id && l.list != null)
-        .map(l => ({
-            "TCGplayer Id":          l.tcgplayer_id,
+    const headers = ["TCGplayer Id", "Condition", "Add to Quantity", "TCG Marketplace Price"];
+    const rows = [];
+    let missing = 0;
+    for (const l of lines) {
+        if (l.hidden || l.assigned !== "tcgplayer" || l.list == null) continue;
+        const sku = l.tcgplayer_skus?.nm_normal;  // foil support deferred — needs per-card foil flag
+        if (!sku) { missing++; continue; }
+        rows.push({
+            "TCGplayer Id":          sku,
             "Condition":             "Near Mint",
             "Add to Quantity":       l.quantity || 1,
             "TCG Marketplace Price": (l.list ?? 0).toFixed(2),
-        }));
+        });
+    }
     if (!rows.length) return null;
-    const csv = rowsToCsv(
-        ["TCGplayer Id", "Condition", "Add to Quantity", "TCG Marketplace Price"],
-        rows
-    );
+    const csv = rowsToCsv(headers, rows);
     downloadCsv(`${deckLabel}_tcgplayer.csv`, csv);
-    return rows.length;
+    return rows.length + (missing ? ` (${missing} missing SKU)` : "");
 }
 
 function exportManaPool(lines, deckLabel) {
-    /**
-     * Mana Pool seller import. product_id is products_mtg_single.id (NM/EN
-     * per-finish UUID); we default to NF (nonfoil). FO support would
-     * require a UI toggle per card.
-     */
-    const rows = lines
-        .filter(l => !l.hidden && l.assigned === "manapool" && l.manapool_skus?.nf && l.list != null)
-        .map(l => ({
-            "product_id": l.manapool_skus.nf,
-            "finish": "NF",
-            "quantity": l.quantity || 1,
-            "price": (l.list ?? 0).toFixed(2),
-            "condition": "NM",
-            "language": "EN",
-            "name": l.name,
-        }));
+    const headers = [
+        "product_type", "product_id", "name", "set", "number", "rarity",
+        "language", "finish", "condition", "price",
+        "market_low", "market_price", "market_price_foil",
+        "quantity", "exported_at",
+    ];
+    const stamp = new Date().toISOString();
+    const rows = [];
+    let missing = 0;
+    for (const l of lines) {
+        if (l.hidden || l.assigned !== "manapool" || l.list == null) continue;
+        const productId = l.manapool_skus?.nf;  // nonfoil default
+        if (!productId) { missing++; continue; }
+        rows.push({
+            "product_type":       "mtg_single",
+            "product_id":         productId,
+            "name":               l.name,
+            "set":                (l.set_code || "").toUpperCase(),
+            "number":             l.card_number,
+            "rarity":             l.rarity || "",
+            "language":           "EN",
+            "finish":             "NF",
+            "condition":          "NM",
+            "price":              (l.list ?? 0).toFixed(2),
+            "market_low":         "",
+            "market_price":       "",
+            "market_price_foil":  "",
+            "quantity":           l.quantity || 1,
+            "exported_at":        stamp,
+        });
+    }
     if (!rows.length) return null;
-    const csv = rowsToCsv(
-        ["product_id", "finish", "quantity", "price", "condition", "language", "name"],
-        rows
-    );
+    const csv = rowsToCsv(headers, rows);
     downloadCsv(`${deckLabel}_manapool.csv`, csv);
-    return rows.length;
+    return rows.length + (missing ? ` (${missing} missing SKU)` : "");
 }
 
 function exportEbay(lines, deckLabel) {
     /**
-     * Minimal eBay-friendly CSV. eBay's File Exchange has many required
-     * fields (Action, Category, ConditionID, ListingType...) that need
-     * the seller's account-specific values; rather than guess, ship a
-     * worksheet they can paste into File Exchange.
+     * Minimal eBay listing worksheet. eBay's File Exchange has many
+     * required fields (Action, Category, ConditionID, ListingType, etc.)
+     * that need the seller's account-specific values, so we ship a
+     * spreadsheet they can paste into File Exchange rather than guess.
      */
+    const headers = ["Title", "Custom Label (SKU)", "Quantity", "Start Price", "Condition"];
     const rows = lines
         .filter(l => !l.hidden && l.assigned === "ebay" && l.list != null)
         .map(l => ({
-            "Title": `MTG ${l.set_code.toUpperCase()} #${l.card_number} ${l.name} NM`,
+            "Title":              `MTG ${l.set_code.toUpperCase()} #${l.card_number} ${l.name} NM`,
             "Custom Label (SKU)": `${l.set_code}-${l.card_number}`,
-            "Quantity": l.quantity || 1,
-            "Start Price": (l.list ?? 0).toFixed(2),
-            "Condition": "Near Mint",
+            "Quantity":           l.quantity || 1,
+            "Start Price":        (l.list ?? 0).toFixed(2),
+            "Condition":          "Near Mint",
         }));
     if (!rows.length) return null;
-    const csv = rowsToCsv(
-        ["Title", "Custom Label (SKU)", "Quantity", "Start Price", "Condition"],
-        rows
-    );
+    const csv = rowsToCsv(headers, rows);
     downloadCsv(`${deckLabel}_ebay.csv`, csv);
     return rows.length;
 }
 
 function exportPlan(plan, deckLabel) {
-    /**
-     * Export one CSV per platform that has any assigned cards. Returns
-     * a summary string.
-     */
     const summary = [];
     const tcg = exportTcgPlayer(plan.lines, deckLabel);
-    if (tcg) summary.push(`TCGPlayer: ${tcg} lines`);
+    if (tcg) summary.push(`TCGPlayer: ${tcg}`);
     const mp = exportManaPool(plan.lines, deckLabel);
-    if (mp) summary.push(`ManaPool: ${mp} lines`);
+    if (mp) summary.push(`ManaPool: ${mp}`);
     const eb = exportEbay(plan.lines, deckLabel);
-    if (eb) summary.push(`eBay: ${eb} lines`);
+    if (eb) summary.push(`eBay: ${eb}`);
     return summary.length ? summary.join(" · ") : "Nothing to export";
 }

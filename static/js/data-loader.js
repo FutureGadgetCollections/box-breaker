@@ -37,17 +37,19 @@ const Cache = {
     tcgPrices: null,
     mpPrices: null,
     mpSkus: null,
+    tcgSkus: null,
 };
 
 async function loadAll() {
     if (Cache.sealed) return Cache;
-    const [sealed, deckLists, cards, tcg, mp, mpSkus] = await Promise.all([
+    const [sealed, deckLists, cards, tcg, mp, mpSkus, tcgSkus] = await Promise.all([
         loadJsonData("sealed-products"),
         loadJsonData("precon-deck-lists"),
         loadJsonData("single-cards"),
         loadJsonData("tcgplayer-latest-prices"),
         loadJsonData("manapool-latest-prices"),
         loadJsonData("manapool-skus"),
+        loadJsonData("tcgplayer-skus"),
     ]);
 
     Cache.sealed = sealed || [];
@@ -65,6 +67,7 @@ async function loadAll() {
     Cache.tcgPrices = new Map((tcg || []).map(p => [String(p.tcgplayer_id), p]));
     Cache.mpPrices = new Map((mp || []).map(p => [String(p.tcgplayer_id), p]));
     Cache.mpSkus = new Map((mpSkus || []).map(s => [String(s.tcgplayer_id), s]));
+    Cache.tcgSkus = new Map((tcgSkus || []).map(s => [String(s.tcgplayer_id), s]));
 
     return Cache;
 }
@@ -145,6 +148,7 @@ function getSingleDeckCards(productType) {
         const tcg = tcgId ? Cache.tcgPrices.get(tcgId) : null;
         const mp = tcgId ? Cache.mpPrices.get(tcgId) : null;
         const mpSku = tcgId ? Cache.mpSkus.get(tcgId) : null;
+        const tcgSku = tcgId ? Cache.tcgSkus.get(tcgId) : null;
         return {
             set_code: card.set_code,
             card_number: card.card_number,
@@ -162,6 +166,10 @@ function getSingleDeckCards(productType) {
                 set: mpSku.set,
                 number: mpSku.number,
                 rarity: mpSku.rarity,
+            } : null,
+            tcgplayer_skus: tcgSku ? {
+                nm_normal: tcgSku.nm_normal_sku,
+                nm_foil:   tcgSku.nm_foil_sku,
             } : null,
         };
     });

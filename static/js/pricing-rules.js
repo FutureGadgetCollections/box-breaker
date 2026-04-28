@@ -21,6 +21,51 @@ const DEFAULT_RULES = {
 
 const RULES_KEY = "box-breaker.pricing-rules.v1";
 
+const DEFAULT_FILTERS = {
+    hideBulkBasics: true,    // hide common basic lands whose market is below `bulkThreshold`
+    bulkThreshold: 0.25,     // dollars; lands below this are bulk
+};
+const FILTERS_KEY = "box-breaker.filters.v1";
+
+function loadFilters() {
+    try {
+        const raw = localStorage.getItem(FILTERS_KEY);
+        if (!raw) return { ...DEFAULT_FILTERS };
+        return { ...DEFAULT_FILTERS, ...JSON.parse(raw) };
+    } catch (_) { return { ...DEFAULT_FILTERS }; }
+}
+function saveFilters(f) {
+    try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch (_) { }
+}
+
+const BASIC_LAND_NAMES = new Set([
+    "plains", "island", "swamp", "mountain", "forest", "wastes",
+    "snow-covered plains", "snow-covered island", "snow-covered swamp",
+    "snow-covered mountain", "snow-covered forest", "snow-covered wastes",
+]);
+
+function isBasicLand(card) {
+    const n = (card?.name || "").toLowerCase();
+    return BASIC_LAND_NAMES.has(n);
+}
+
+function shouldHide(card, filters, rules) {
+    /**
+     * "Bulk" = a basic land whose best market price falls below the
+     * higher of `bulkThreshold` and the configured pricing-rules floor.
+     * Anything at or above the threshold sticks around because it
+     * actually has resale value (foil, full-art alt, etc.).
+     */
+    if (!filters?.hideBulkBasics) return false;
+    if (!isBasicLand(card)) return false;
+    const maxMarket = Math.max(
+        card.prices.tcgplayer ?? 0,
+        card.prices.manapool ?? 0
+    );
+    const cutoff = Math.max(filters.bulkThreshold || 0, rules?.floor || 0);
+    return maxMarket < cutoff;
+}
+
 function loadRules() {
     try {
         const raw = localStorage.getItem(RULES_KEY);

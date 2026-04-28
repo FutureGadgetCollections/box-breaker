@@ -40,7 +40,7 @@ function exportTcgPlayer(lines, deckLabel) {
      * Price. We include the price per-card so the seller can review.
      */
     const rows = lines
-        .filter(l => l.assigned === "tcgplayer" && l.tcgplayer_id && l.list != null)
+        .filter(l => !l.hidden && l.assigned === "tcgplayer" && l.tcgplayer_id && l.list != null)
         .map(l => ({
             "TCGplayer Id": l.tcgplayer_id,
             "Product Line": "Magic",
@@ -69,7 +69,7 @@ function exportManaPool(lines, deckLabel) {
      * require a UI toggle per card.
      */
     const rows = lines
-        .filter(l => l.assigned === "manapool" && l.manapool_skus?.nf && l.list != null)
+        .filter(l => !l.hidden && l.assigned === "manapool" && l.manapool_skus?.nf && l.list != null)
         .map(l => ({
             "product_id": l.manapool_skus.nf,
             "finish": "NF",
@@ -96,7 +96,7 @@ function exportEbay(lines, deckLabel) {
      * worksheet they can paste into File Exchange.
      */
     const rows = lines
-        .filter(l => l.assigned === "ebay" && l.list != null)
+        .filter(l => !l.hidden && l.assigned === "ebay" && l.list != null)
         .map(l => ({
             "Title": `MTG ${l.set_code.toUpperCase()} #${l.card_number} ${l.name} NM`,
             "Custom Label (SKU)": `${l.set_code}-${l.card_number}`,

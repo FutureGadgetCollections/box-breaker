@@ -11,6 +11,7 @@ const State = {
     mode: "mixed",         // global platform mode
     overrides: {},         // { cardKey: platform }
     rules: typeof loadRules === "function" ? loadRules() : { basis:"platform", markupPct:0, floor:0, ceiling:0, roundTo:0.01 },
+    filters: typeof loadFilters === "function" ? loadFilters() : { hideBulkBasics: true, bulkThreshold: 0.25 },
     showRules: false,
     sort: { col: "card_number", dir: "asc" },  // table sort: column key + 'asc'|'desc'
 };
@@ -247,7 +248,7 @@ function openDeck(deck) {
 
 function renderDeckDetail() {
     const deck = State.activeDeck;
-    const plan = computePlan(State.activeCards, State.mode, State.overrides, State.rules);
+    const plan = computePlan(State.activeCards, State.mode, State.overrides, State.rules, State.filters);
     const root = document.getElementById("root");
 
     root.innerHTML = `
@@ -257,7 +258,9 @@ function renderDeckDetail() {
                 <div>
                     <strong>${deckShortName(deck)}</strong>
                     <span class="text-light-emphasis small ms-2">
-                        (${State.activeCards.length} unique / ${State.activeCards.reduce((a,c) => a + (c.quantity||1), 0)} total · MSRP ${fmtUsd(deck.msrp)})
+                        (${State.activeCards.length} unique / ${State.activeCards.reduce((a,c) => a + (c.quantity||1), 0)} total
+                        ${plan.hiddenCount ? ` · <span class="badge text-bg-warning">${plan.hiddenCount} hidden</span>` : ""}
+                        · MSRP ${fmtUsd(deck.msrp)})
                     </span>
                 </div>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -443,6 +446,28 @@ function renderRulesPanel(r) {
                         <button id="rule-reset" class="btn btn-sm btn-outline-secondary w-100" title="Reset to defaults">↺</button>
                     </div>
                 </div>
+                <hr class="my-2">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="filter-bulk" ${State.filters.hideBulkBasics?'checked':''}>
+                            <label class="form-check-label small" for="filter-bulk">
+                                Hide bulk basic lands
+                                <span class="text-muted">(common Plains/Island/etc. below threshold)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Bulk threshold</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">$</span>
+                            <input id="filter-threshold" type="number" step="0.05" min="0" class="form-control" value="${State.filters.bulkThreshold||0}">
+                        </div>
+                    </div>
+                    <div class="col-md-6 small text-muted align-self-end pb-1">
+                        Basics with TCG or MP market price ≥ <strong>max(threshold, floor)</strong> stay in. Hidden rows are excluded from ROI and CSV.
+                    </div>
+                </div>
             </div>
         </div>`;
 }
@@ -464,6 +489,17 @@ function bindRulesPanel() {
         saveRules(State.rules);
         renderDeckDetail();
     });
+
+    const bulk = document.getElementById("filter-bulk");
+    if (bulk) bulk.addEventListener("change", e => updateFilter({ hideBulkBasics: e.target.checked }));
+    const thresh = document.getElementById("filter-threshold");
+    if (thresh) thresh.addEventListener("change", e => updateFilter({ bulkThreshold: parseFloat(e.target.value || 0) }));
+}
+
+function updateFilter(patch) {
+    State.filters = { ...State.filters, ...patch };
+    saveFilters(State.filters);
+    renderDeckDetail();
 }
 
 function updateRule(patch) {
@@ -521,7 +557,8 @@ function sortIndicator(col) {
 }
 
 function renderCardTable(plan) {
-    const sortedLines = sortLines(plan.lines, State.sort);
+    const visibleLines = plan.lines.filter(l => !l.hidden);
+    const sortedLines = sortLines(visibleLines, State.sort);
     const rows = sortedLines.map(line => {
         const key = `${line.set_code}|${line.card_number}`;
         const tcg = line.prices.tcgplayer;

@@ -53,12 +53,20 @@ function pickBestPlatform(card, rules) {
 /**
  * Build the per-card listing plan.
  */
-function computePlan(cards, mode, overrides, rules) {
+function computePlan(cards, mode, overrides, rules, filters) {
     const lines = [];
     let totalGross = 0, totalNet = 0;
     let cardsWithPrice = 0, cardsWithoutPrice = 0;
+    let hiddenCount = 0, hiddenCopies = 0;
 
     for (const card of cards) {
+        const hidden = typeof shouldHide === "function" && shouldHide(card, filters, rules);
+        if (hidden) {
+            hiddenCount++;
+            hiddenCopies += card.quantity || 1;
+            lines.push({ ...card, assigned: null, list: null, net: null, override: false, hidden: true });
+            continue;
+        }
         const key = `${card.set_code}|${card.card_number}`;
         const override = overrides[key];
 
@@ -89,5 +97,5 @@ function computePlan(cards, mode, overrides, rules) {
         lines.push({ ...card, assigned, list, net, override: !!override });
     }
 
-    return { lines, totalGross, totalNet, cardsWithPrice, cardsWithoutPrice };
+    return { lines, totalGross, totalNet, cardsWithPrice, cardsWithoutPrice, hiddenCount, hiddenCopies };
 }

@@ -35,6 +35,14 @@ footer {
     margin-right: 0.5rem;
 }
 
+.card-thumb {
+    height: 40px;
+    width: 28px;
+    object-fit: cover;
+    border-radius: 2px;
+    background: #f0f0f0;
+}
+
 .form-check-label {
     margin-left: 0.5rem;
 }

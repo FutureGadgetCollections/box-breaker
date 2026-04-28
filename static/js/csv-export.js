@@ -40,7 +40,7 @@ function exportTcgPlayer(lines, deckLabel) {
      * Price. We include the price per-card so the seller can review.
      */
     const rows = lines
-        .filter(l => l.assigned === "tcgplayer" && l.tcgplayer_id && l.price != null)
+        .filter(l => l.assigned === "tcgplayer" && l.tcgplayer_id && l.list != null)
         .map(l => ({
             "TCGplayer Id": l.tcgplayer_id,
             "Product Line": "Magic",
@@ -49,8 +49,8 @@ function exportTcgPlayer(lines, deckLabel) {
             "Number": l.card_number,
             "Rarity": l.rarity || "",
             "Condition": "Near Mint",
-            "Add to Quantity": l.quantity,
-            "TCG Marketplace Price": (l.price ?? 0).toFixed(2),
+            "Add to Quantity": 1,
+            "TCG Marketplace Price": (l.list ?? 0).toFixed(2),
         }));
     if (!rows.length) return null;
     const csv = rowsToCsv(
@@ -69,12 +69,12 @@ function exportManaPool(lines, deckLabel) {
      * require a UI toggle per card.
      */
     const rows = lines
-        .filter(l => l.assigned === "manapool" && l.manapool_skus?.nf && l.price != null)
+        .filter(l => l.assigned === "manapool" && l.manapool_skus?.nf && l.list != null)
         .map(l => ({
             "product_id": l.manapool_skus.nf,
             "finish": "NF",
-            "quantity": l.quantity,
-            "price": (l.price ?? 0).toFixed(2),
+            "quantity": 1,
+            "price": (l.list ?? 0).toFixed(2),
             "condition": "NM",
             "language": "EN",
             "name": l.name,
@@ -96,12 +96,12 @@ function exportEbay(lines, deckLabel) {
      * worksheet they can paste into File Exchange.
      */
     const rows = lines
-        .filter(l => l.assigned === "ebay" && l.price != null)
+        .filter(l => l.assigned === "ebay" && l.list != null)
         .map(l => ({
             "Title": `MTG ${l.set_code.toUpperCase()} #${l.card_number} ${l.name} NM`,
             "Custom Label (SKU)": `${l.set_code}-${l.card_number}`,
-            "Quantity": l.quantity,
-            "Start Price": (l.price ?? 0).toFixed(2),
+            "Quantity": 1,
+            "Start Price": (l.list ?? 0).toFixed(2),
             "Condition": "Near Mint",
         }));
     if (!rows.length) return null;

@@ -1,14 +1,15 @@
 /**
  * Platform fee model + per-card net calculation + mixed-mode optimizer.
  *
- * Fee numbers per the project's prior calibration; tweak in one place.
+ * Listed prices come from `applyRules()` (pricing-rules.js); this module
+ * just turns those listed prices into net proceeds via the fee table.
  */
 
 const PLATFORMS = {
     tcgplayer: {
         label: "TCGPlayer",
         feePct: 0.1025 + 0.025,  // 10.25% commission + 2.5% payment processing
-        perOrderFee: 0.30,        // amortized; we divide across cards in the same listing
+        perOrderFee: 0.30,
     },
     manapool: {
         label: "ManaPool",
@@ -17,63 +18,42 @@ const PLATFORMS = {
     },
     ebay: {
         label: "eBay",
-        feePct: 0.1325,           // ~13.25% final value
+        feePct: 0.1325,
         perOrderFee: 0.30,
     },
 };
 
 const PLATFORM_KEYS = ["tcgplayer", "manapool", "ebay"];
 
-/**
- * Net proceeds after fees for one card sold at `price` on `platform`.
- * Per-order fee amortization: assume the card is one of N in a single order;
- * we approximate by dividing the per-order fee by N. For a single deck
- * (~80 unique cards), this ends up ~$0.004 per card — negligible.
- */
-function netForCard(price, platform, cardsInOrder = 80) {
+function netForPrice(price, platform, cardsInOrder = 80) {
     if (price == null || isNaN(price)) return null;
     const p = PLATFORMS[platform];
     if (!p) return price;
-    const perCardOrderFee = (p.perOrderFee || 0) / Math.max(cardsInOrder, 1);
-    const net = price * (1 - p.feePct) - perCardOrderFee;
-    return Math.max(0, net);
+    const perCard = (p.perOrderFee || 0) / Math.max(cardsInOrder, 1);
+    return Math.max(0, price * (1 - p.feePct) - perCard);
 }
 
 /**
- * For a card with prices on each platform, pick the platform with the
- * highest net. Returns { platform, net, price } or null if no prices.
- *
- * `availability` lets callers restrict the set of platforms (e.g. eBay
- * disabled). `priceFallback`: if a platform's price is missing but it's
- * allowed, fall back to TCGPlayer market_price (for eBay where we have
- * no live scraper).
+ * For a card, choose the platform that yields the highest net proceeds
+ * given the active pricing rules.
  */
-function pickBestPlatform(card, availability = PLATFORM_KEYS, priceFallback = true) {
+function pickBestPlatform(card, rules) {
     let best = null;
-    for (const k of availability) {
-        let price = null;
-        if (k === "tcgplayer") price = card.prices.tcgplayer;
-        else if (k === "manapool") price = card.prices.manapool;
-        else if (k === "ebay") {
-            price = priceFallback ? (card.prices.tcgplayer ?? null) : null;
-        }
-        const net = netForCard(price, k);
+    for (const k of PLATFORM_KEYS) {
+        const list = applyRules(card, k, rules);
+        const net = netForPrice(list, k);
         if (net == null) continue;
         if (!best || net > best.net) {
-            best = { platform: k, net, price };
+            best = { platform: k, list, net };
         }
     }
     return best;
 }
 
 /**
- * Given a list of resolved deck cards and a global mode, compute per-card
- * platform assignments + summary.
- *
- * mode: "tcgplayer" | "manapool" | "ebay" | "mixed"
- * overrides: { [cardKey]: platform }   (cardKey = `${set_code}|${card_number}`)
+ * Build the per-card listing plan.
  */
-function computePlan(cards, mode, overrides = {}) {
+function computePlan(cards, mode, overrides, rules) {
     const lines = [];
     let totalGross = 0, totalNet = 0;
     let cardsWithPrice = 0, cardsWithoutPrice = 0;
@@ -82,44 +62,31 @@ function computePlan(cards, mode, overrides = {}) {
         const key = `${card.set_code}|${card.card_number}`;
         const override = overrides[key];
 
-        let assigned = null;
-        let net = null;
-        let price = null;
+        let assigned = null, list = null, net = null;
 
         if (override) {
-            price = priceForPlatform(card, override);
-            net = netForCard(price, override);
             assigned = override;
+            list = applyRules(card, override, rules);
+            net = netForPrice(list, override);
         } else if (mode === "mixed") {
-            const best = pickBestPlatform(card);
-            if (best) {
-                assigned = best.platform;
-                net = best.net;
-                price = best.price;
-            }
+            const best = pickBestPlatform(card, rules);
+            if (best) { assigned = best.platform; list = best.list; net = best.net; }
         } else {
-            price = priceForPlatform(card, mode);
-            net = netForCard(price, mode);
             assigned = mode;
+            list = applyRules(card, mode, rules);
+            net = netForPrice(list, mode);
         }
 
         if (net != null) {
-            totalGross += (price || 0) * card.quantity;
-            totalNet += net * card.quantity;
+            totalGross += list;
+            totalNet += net;
             cardsWithPrice++;
         } else {
             cardsWithoutPrice++;
         }
 
-        lines.push({ ...card, assigned, price, net, override: !!override });
+        lines.push({ ...card, assigned, list, net, override: !!override });
     }
 
     return { lines, totalGross, totalNet, cardsWithPrice, cardsWithoutPrice };
-}
-
-function priceForPlatform(card, platform) {
-    if (platform === "tcgplayer") return card.prices.tcgplayer;
-    if (platform === "manapool") return card.prices.manapool;
-    if (platform === "ebay") return card.prices.tcgplayer; // fallback proxy
-    return null;
 }

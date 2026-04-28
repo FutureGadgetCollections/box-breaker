@@ -175,16 +175,20 @@ function renderDeckGrid() {
     const cards = decks.map(d => {
         const cmd = commanderInfoForDeck(State.activeSet, d.product_type);
         const imgId = `cmd-${d.product_type}`;
+        const isMeta = d.product_type === "commander-deck-set-of-5";
         return `
             <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card h-100" style="cursor:pointer" data-deck="${d.product_type}">
-                    <div style="background:#222;height:180px;overflow:hidden;display:flex;align-items:center;justify-content:center">
-                        <img id="${imgId}" alt="" style="display:none;width:100%;object-fit:cover">
-                        <span id="${imgId}-fallback" class="text-secondary small">Loading commander art…</span>
+                <div class="card h-100 ${isMeta ? 'border-warning border-2' : ''}" style="cursor:pointer" data-deck="${d.product_type}">
+                    <div style="background:#222;height:180px;overflow:hidden;display:flex;align-items:center;justify-content:center;${isMeta?'background:linear-gradient(135deg,#7e57c2,#26a69a)':''}">
+                        ${isMeta
+                            ? '<div class="text-white text-center"><div style="font-size:3rem">📦</div><div class="fw-bold">All 5 Decks Combined</div></div>'
+                            : `<img id="${imgId}" alt="" style="display:none;width:100%;object-fit:cover"><span id="${imgId}-fallback" class="text-secondary small">Loading commander art…</span>`}
                     </div>
                     <div class="card-body">
-                        <h6 class="card-title mb-1">${deckShortName(d)}</h6>
-                        ${cmd ? `<div class="small text-muted mb-1">⚔ ${cmd.name}</div>` : ''}
+                        <h6 class="card-title mb-1">${isMeta ? "Set of 5 (combined)" : deckShortName(d)}</h6>
+                        ${isMeta
+                            ? '<div class="small text-warning mb-1">📋 One CSV per platform — quantities merged across all 5 decks</div>'
+                            : (cmd ? `<div class="small text-muted mb-1">⚔ ${cmd.name}</div>` : '')}
                         <div class="small">
                             MSRP <strong>${fmtUsd(d.msrp)}</strong>
                             · TCG <code>${d.tcgplayer_id || "—"}</code>
@@ -209,6 +213,7 @@ function renderDeckGrid() {
 
     // Lazy-load commander art for each deck
     for (const d of decks) {
+        if (d.product_type === "commander-deck-set-of-5") continue;
         const cmd = commanderInfoForDeck(State.activeSet, d.product_type);
         if (!cmd) continue;
         const imgId = `cmd-${d.product_type}`;

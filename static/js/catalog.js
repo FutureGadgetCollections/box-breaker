@@ -40,6 +40,7 @@ const SET_DECK_COMMANDERS = {
         "commander-deck-quandrix-unlimited":      { name: "Zimone, Infinite Analyst",     set: "soc", number: "10" },
         "commander-deck-silverquill-influence":   { name: "Killian, Decisive Mentor",     set: "soc", number: "4"  },
         "commander-deck-witherbloom-pestilence":  { name: "Dina, Essence Brewer",         set: "soc", number: "1"  },
+        "commander-deck-set-of-5":                { name: "All 5 commanders (combined)",  set: "soc", number: "1", isMeta: true },
     },
 };
 
@@ -85,13 +86,23 @@ function getSetsForGame(gameCode) {
 }
 
 function getDecksForSet(gameCode, setCode) {
-    return (Cache.sealed || []).filter(p =>
+    /**
+     * Returns commander decks for the set, with the "Set of 5" meta-deck
+     * sorted last so it shows up as a distinct option after the singles.
+     */
+    const all = (Cache.sealed || []).filter(p =>
         p.game === gameCode &&
         p.set_code === setCode &&
         p.product_type &&
-        p.product_type.startsWith("commander-deck-") &&
-        p.product_type !== "commander-deck-set-of-5"
+        p.product_type.startsWith("commander-deck-")
     );
+    return all.sort((a, b) => {
+        const aMeta = a.product_type === "commander-deck-set-of-5";
+        const bMeta = b.product_type === "commander-deck-set-of-5";
+        if (aMeta && !bMeta) return 1;
+        if (bMeta && !aMeta) return -1;
+        return (a.product_type || "").localeCompare(b.product_type || "");
+    });
 }
 
 function setIconUrl(setCode) {

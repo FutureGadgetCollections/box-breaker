@@ -80,6 +80,41 @@ function getSocDecks() {
 }
 
 function getDeckCards(productType) {
+    if (productType === "commander-deck-set-of-5") {
+        return getCombinedSetOfFiveCards();
+    }
+    return getSingleDeckCards(productType);
+}
+
+function getCombinedSetOfFiveCards() {
+    /**
+     * Union of all 5 SOC commander decks, with quantities summed by
+     * (set_code, card_number). Eliminates cross-deck duplicates that
+     * would otherwise show up as the same card in multiple per-deck
+     * CSVs (Sol Ring, Path of Ancestry, basic lands, etc.).
+     */
+    const decks = [
+        "commander-deck-lorehold-spirit",
+        "commander-deck-prismari-artistry",
+        "commander-deck-quandrix-unlimited",
+        "commander-deck-silverquill-influence",
+        "commander-deck-witherbloom-pestilence",
+    ];
+    const merged = new Map();
+    for (const deck of decks) {
+        for (const card of getSingleDeckCards(deck)) {
+            const key = `${card.set_code}|${card.card_number}`;
+            if (merged.has(key)) {
+                merged.get(key).quantity += card.quantity;
+            } else {
+                merged.set(key, { ...card });
+            }
+        }
+    }
+    return Array.from(merged.values());
+}
+
+function getSingleDeckCards(productType) {
     /**
      * Resolve a deck (by product_type) to its full card list, joined with
      * card metadata + per-platform pricing.

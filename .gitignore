@@ -1,11 +1,3 @@
-resources/
 public/
-.DS_Store
-*.swp
-*.swo
-*~
-.env
-.env.local
-node_modules/
-dist/
-build/
+.hugo_build.lock
+resources/_gen/

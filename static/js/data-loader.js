@@ -1,124 +1,137 @@
 /**
- * Loads JSON data from GitHub Raw first, falls back to GCS
+ * Data loader for box-breaker.
+ *
+ * Source files (collection-market-tracker-data, GitHub Raw + GCS fallback):
+ *   sealed-products.json         deck SKUs + MSRP + tcgplayer_id
+ *   precon-deck-lists.json       deck -> (set_code, card_number, quantity)
+ *   single-cards.json            (game,set_code,card_number) -> name, rarity, tcgplayer_id
+ *   tcgplayer-latest-prices.json tcgplayer_id -> market_price, listed_median, sellers
+ *   manapool-latest-prices.json  tcgplayer_id -> from_price (lowest listed)
+ *   manapool-skus.json           tcgplayer_id -> per-finish Mana Pool SKU UUIDs
  */
+
+const DATA_REPO = "FutureGadgetCollections/collection-market-tracker-data";
+const GCS_BUCKET = "collection-tracker-data";
+
 async function loadJsonData(filename) {
-    const githubRepo = "FutureGadgetCollections/collection-market-tracker-data";
-    const gcsBucket = "collection-tracker-data";
-
-    const githubUrl = `https://raw.githubusercontent.com/${githubRepo}/main/data/${filename}.json`;
-    const gcsUrl = `https://storage.googleapis.com/${gcsBucket}/data/${filename}.json`;
-
+    const ghUrl = `https://raw.githubusercontent.com/${DATA_REPO}/main/data/${filename}.json`;
+    const gcsUrl = `https://storage.googleapis.com/${GCS_BUCKET}/data/${filename}.json`;
     try {
-        const response = await fetch(githubUrl);
-        if (response.ok) {
-            return await response.json();
-        }
-    } catch (e) {
-        console.warn(`GitHub fetch failed for ${filename}, trying GCS...`);
-    }
-
+        const r = await fetch(ghUrl);
+        if (r.ok) return await r.json();
+    } catch (_) { }
     try {
-        const response = await fetch(gcsUrl);
-        if (response.ok) {
-            return await response.json();
-        }
-    } catch (e) {
-        console.error(`Failed to load ${filename} from both sources`);
-    }
-
+        const r = await fetch(gcsUrl);
+        if (r.ok) return await r.json();
+    } catch (_) { }
+    console.error(`[data-loader] failed to load ${filename}`);
     return null;
 }
 
-/**
- * Load all Secrets of Strixhaven commander decks
- */
-async function loadDecks() {
-    try {
-        const sealedProducts = await loadJsonData("sealed-products");
-        if (!sealedProducts) {
-            console.error("Failed to load sealed products data");
-            return [];
+const Cache = {
+    sealed: null,
+    deckLists: null,
+    cards: null,
+    cardsBySetNum: null,
+    cardsByTcg: null,
+    tcgPrices: null,
+    mpPrices: null,
+    mpSkus: null,
+};
+
+async function loadAll() {
+    if (Cache.sealed) return Cache;
+    const [sealed, deckLists, cards, tcg, mp, mpSkus] = await Promise.all([
+        loadJsonData("sealed-products"),
+        loadJsonData("precon-deck-lists"),
+        loadJsonData("single-cards"),
+        loadJsonData("tcgplayer-latest-prices"),
+        loadJsonData("manapool-latest-prices"),
+        loadJsonData("manapool-skus"),
+    ]);
+
+    Cache.sealed = sealed || [];
+    Cache.deckLists = deckLists || [];
+    Cache.cards = cards || [];
+
+    Cache.cardsBySetNum = new Map();
+    Cache.cardsByTcg = new Map();
+    for (const c of Cache.cards) {
+        if (c.game !== "mtg") continue;
+        Cache.cardsBySetNum.set(`${c.set_code}|${c.card_number}`, c);
+        if (c.tcgplayer_id) Cache.cardsByTcg.set(String(c.tcgplayer_id), c);
+    }
+
+    Cache.tcgPrices = new Map((tcg || []).map(p => [String(p.tcgplayer_id), p]));
+    Cache.mpPrices = new Map((mp || []).map(p => [String(p.tcgplayer_id), p]));
+    Cache.mpSkus = new Map((mpSkus || []).map(s => [String(s.tcgplayer_id), s]));
+
+    return Cache;
+}
+
+function getSocDecks() {
+    return (Cache.sealed || []).filter(p =>
+        p.game === "mtg" &&
+        p.set_code === "soc" &&
+        p.product_type &&
+        p.product_type.startsWith("commander-deck-") &&
+        p.product_type !== "commander-deck-set-of-5"
+    );
+}
+
+function getDeckCards(productType) {
+    /**
+     * Resolve a deck (by product_type) to its full card list, joined with
+     * card metadata + per-platform pricing.
+     *
+     * Returns: [{ set_code, card_number, name, rarity, quantity, tcgplayer_id,
+     *             prices: { tcgplayer, manapool }, manapool_skus }]
+     */
+    const entries = (Cache.deckLists || []).filter(e =>
+        e.game === "mtg" && e.set_code === "soc" && e.product_type === productType
+    );
+
+    return entries.map(e => {
+        // The card may be printed in a different set than the precon (e.g. SOS reprints).
+        // The precon row's set_code is the precon (soc); we need to look the card up
+        // by (card.set_code, card.card_number) which means trying soc first, then sos.
+        const candidates = ["soc", "sos"];
+        let card = null;
+        for (const cs of candidates) {
+            const c = Cache.cardsBySetNum.get(`${cs}|${e.card_number}`);
+            if (c) { card = c; break; }
         }
-
-        // Filter for Secrets of Strixhaven commander decks (mtg, soc, commander-deck-*)
-        const decks = sealedProducts.filter(p =>
-            p.game === "mtg" &&
-            p.set_code === "soc" &&
-            p.product_type && p.product_type.startsWith("commander-deck-")
-        );
-
-        // Map to friendly format
-        return decks.map(deck => ({
-            id: deck.product_type,
-            name: deck.name || formatDeckName(deck.product_type),
-            price: deck.msrp || 44.99,
-            set_code: deck.set_code,
-            product_type: deck.product_type,
-            tcgplayer_id: deck.tcgplayer_id,
-            msrp: deck.msrp,
-            era: deck.era
-        }));
-    } catch (error) {
-        console.error("Error loading decks:", error);
-        return [];
-    }
-}
-
-/**
- * Format deck product type to friendly name
- */
-function formatDeckName(productType) {
-    // Extract name from "commander-deck-{name}" format
-    const match = productType.match(/commander-deck-(.+)/);
-    if (match) {
-        return "Secrets of Strixhaven Commander Deck - " +
-            match[1].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    }
-    return productType;
-}
-
-/**
- * Load cards for a specific deck
- */
-async function loadDeckCards(deckProductType) {
-    try {
-        const singleCards = await loadJsonData("single-cards");
-        if (!singleCards) {
-            console.error("Failed to load single cards data");
-            return [];
+        if (!card) {
+            return {
+                set_code: e.set_code, card_number: e.card_number,
+                name: `?? ${e.set_code}#${e.card_number}`, rarity: "",
+                quantity: e.quantity, tcgplayer_id: null,
+                prices: { tcgplayer: null, manapool: null },
+                manapool_skus: null,
+            };
         }
-
-        // Get all cards in the SOC set
-        const socCards = singleCards.filter(c =>
-            c.game === "mtg" &&
-            c.set_code === "soc"
-        );
-
-        // Note: In a real implementation, you'd have deck lists stored separately
-        // For now, return cards that would be in the deck
-        return socCards.slice(0, 100);
-    } catch (error) {
-        console.error("Error loading deck cards:", error);
-        return [];
-    }
-}
-
-/**
- * Load platform pricing data
- */
-async function loadPlatformPrices() {
-    try {
-        // Try to load TCGPlayer latest prices
-        const tcgprices = await loadJsonData("tcgplayer-latest-prices");
-        const manaprices = await loadJsonData("manapool-latest-prices");
-
+        const tcgId = card.tcgplayer_id ? String(card.tcgplayer_id) : null;
+        const tcg = tcgId ? Cache.tcgPrices.get(tcgId) : null;
+        const mp = tcgId ? Cache.mpPrices.get(tcgId) : null;
+        const mpSku = tcgId ? Cache.mpSkus.get(tcgId) : null;
         return {
-            tcgplayer: tcgprices || {},
-            manapool: manaprices || {},
-            ebay: {} // Would need separate scraping
+            set_code: card.set_code,
+            card_number: card.card_number,
+            name: card.name,
+            rarity: card.rarity,
+            quantity: e.quantity,
+            tcgplayer_id: tcgId,
+            prices: {
+                tcgplayer: tcg ? (tcg.market_price ?? tcg.listed_median ?? null) : null,
+                manapool: mp ? (mp.from_price ?? null) : null,
+            },
+            manapool_skus: mpSku ? {
+                nf: mpSku.nf_product_id,
+                fo: mpSku.fo_product_id,
+                set: mpSku.set,
+                number: mpSku.number,
+                rarity: mpSku.rarity,
+            } : null,
         };
-    } catch (error) {
-        console.error("Error loading platform prices:", error);
-        return {};
-    }
+    });
 }

@@ -130,5 +130,19 @@ function exportPlan(plan, deckLabel) {
     if (mp) summary.push(`ManaPool: ${mp}`);
     const eb = exportEbay(plan.lines, deckLabel);
     if (eb) summary.push(`eBay: ${eb}`);
-    return summary.length ? summary.join(" · ") : "Nothing to export";
+
+    if (summary.length) return summary.join(" · ");
+
+    // Diagnose: nothing exported. Why?
+    const assigned = plan.lines.filter(l => !l.hidden && l.assigned);
+    if (!assigned.length) return "Nothing assigned to a platform — check pricing rules / filters.";
+    const tcgAssigned = assigned.filter(l => l.assigned === "tcgplayer");
+    const mpAssigned = assigned.filter(l => l.assigned === "manapool");
+    const tcgMissing = tcgAssigned.filter(l => !l.tcgplayer_skus?.nm_normal).length;
+    const mpMissing = mpAssigned.filter(l => !l.manapool_skus?.nf).length;
+    const reasons = [];
+    if (tcgMissing) reasons.push(`${tcgMissing} TCG cards missing SKU id`);
+    if (mpMissing) reasons.push(`${mpMissing} MP cards missing product id`);
+    if (reasons.length) return `Nothing to export: ${reasons.join(", ")}. Hard-refresh (Ctrl+Shift+R) to pick up fresh SKU data.`;
+    return "Nothing to export.";
 }

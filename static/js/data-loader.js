@@ -14,14 +14,19 @@ const DATA_REPO = "FutureGadgetCollections/collection-market-tracker-data";
 const GCS_BUCKET = "collection-tracker-data";
 
 async function loadJsonData(filename) {
-    const ghUrl = `https://raw.githubusercontent.com/${DATA_REPO}/main/data/${filename}.json`;
-    const gcsUrl = `https://storage.googleapis.com/${GCS_BUCKET}/data/${filename}.json`;
+    // Cache-bust via per-load timestamp so fresh catalog pushes are
+    // visible without users needing a hard refresh. The data files
+    // are small and we only fetch at app startup, so the extra GitHub
+    // hits are immaterial.
+    const ts = Date.now();
+    const ghUrl = `https://raw.githubusercontent.com/${DATA_REPO}/main/data/${filename}.json?t=${ts}`;
+    const gcsUrl = `https://storage.googleapis.com/${GCS_BUCKET}/data/${filename}.json?t=${ts}`;
     try {
-        const r = await fetch(ghUrl);
+        const r = await fetch(ghUrl, { cache: "no-cache" });
         if (r.ok) return await r.json();
     } catch (_) { }
     try {
-        const r = await fetch(gcsUrl);
+        const r = await fetch(gcsUrl, { cache: "no-cache" });
         if (r.ok) return await r.json();
     } catch (_) { }
     console.error(`[data-loader] failed to load ${filename}`);

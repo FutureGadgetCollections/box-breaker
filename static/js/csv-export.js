@@ -35,27 +35,32 @@ function rowsToCsv(headers, rows) {
 
 function exportTcgPlayer(lines, deckLabel) {
     /**
-     * TCGPlayer mass upload format. Documented columns vary; the common
-     * minimum is: TCGplayer Id, Quantity, Add to Quantity, TCG Marketplace
-     * Price. We include the price per-card so the seller can review.
+     * TCGPlayer mass-upload format.
+     *
+     * TCGPlayer matches each row by `TCGplayer Id` (strict). When we
+     * supply descriptive columns (Set Name, Product Name, Rarity,
+     * Product Line, Number) the importer validates them against its
+     * canonical product record and fails with "does not match product
+     * details" if anything differs in case, spacing, or formatting —
+     * e.g. our "SOC" vs canonical "Secrets of Strixhaven Commander",
+     * or lowercase "mythic" vs "Mythic".
+     *
+     * Sticking to the four columns that are strictly required for
+     * adding inventory keeps imports succeeding regardless of how
+     * TCGPlayer punctuates the rest. The seller's dashboard fills in
+     * the descriptive fields automatically from the matched product.
      */
     const rows = lines
         .filter(l => !l.hidden && l.assigned === "tcgplayer" && l.tcgplayer_id && l.list != null)
         .map(l => ({
-            "TCGplayer Id": l.tcgplayer_id,
-            "Product Line": "Magic",
-            "Set Name": l.set_code.toUpperCase(),
-            "Product Name": l.name,
-            "Number": l.card_number,
-            "Rarity": l.rarity || "",
-            "Condition": "Near Mint",
-            "Add to Quantity": l.quantity || 1,
+            "TCGplayer Id":          l.tcgplayer_id,
+            "Condition":             "Near Mint",
+            "Add to Quantity":       l.quantity || 1,
             "TCG Marketplace Price": (l.list ?? 0).toFixed(2),
         }));
     if (!rows.length) return null;
     const csv = rowsToCsv(
-        ["TCGplayer Id", "Product Line", "Set Name", "Product Name", "Number",
-         "Rarity", "Condition", "Add to Quantity", "TCG Marketplace Price"],
+        ["TCGplayer Id", "Condition", "Add to Quantity", "TCG Marketplace Price"],
         rows
     );
     downloadCsv(`${deckLabel}_tcgplayer.csv`, csv);

@@ -84,23 +84,19 @@ function getDeckCards(productType) {
      * Resolve a deck (by product_type) to its full card list, joined with
      * card metadata + per-platform pricing.
      *
+     * The precon row's set_code is the card's PRINTING set (so SOS reprints
+     * in SOC commander decks have set_code='sos'). Lookup is exact —
+     * (set_code, card_number) -> single_cards.
+     *
      * Returns: [{ set_code, card_number, name, rarity, quantity, tcgplayer_id,
      *             prices: { tcgplayer, manapool }, manapool_skus }]
      */
     const entries = (Cache.deckLists || []).filter(e =>
-        e.game === "mtg" && e.set_code === "soc" && e.product_type === productType
+        e.game === "mtg" && e.product_type === productType
     );
 
     return entries.map(e => {
-        // The card may be printed in a different set than the precon (e.g. SOS reprints).
-        // The precon row's set_code is the precon (soc); we need to look the card up
-        // by (card.set_code, card.card_number) which means trying soc first, then sos.
-        const candidates = ["soc", "sos"];
-        let card = null;
-        for (const cs of candidates) {
-            const c = Cache.cardsBySetNum.get(`${cs}|${e.card_number}`);
-            if (c) { card = c; break; }
-        }
+        const card = Cache.cardsBySetNum.get(`${e.set_code}|${e.card_number}`);
         if (!card) {
             return {
                 set_code: e.set_code, card_number: e.card_number,

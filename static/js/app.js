@@ -13,7 +13,7 @@ const State = {
     rules: typeof loadRules === "function" ? loadRules() : { basis:"platform", markupPct:0, floor:0, ceiling:0, roundTo:0.01 },
     filters: typeof loadFilters === "function" ? loadFilters() : { hideBulkBasics: true, bulkThreshold: 0.25 },
     showRules: false,
-    sort: { col: "card_number", dir: "asc" },  // table sort: column key + 'asc'|'desc'
+    sort: [{ col: "card_number", dir: "asc" }],  // ordered list of sort keys; primary first. Shift+click adds secondary.
 };
 
 const RARITY_ORDER = { mythic: 0, rare: 1, uncommon: 2, common: 3, special: 4, bonus: 4, "basic land": 5 };
@@ -308,12 +308,24 @@ function renderDeckDetail() {
     bindRulesPanel();
 
     document.querySelectorAll(".sortable").forEach(th => {
-        th.addEventListener("click", () => {
+        th.addEventListener("click", e => {
             const col = th.dataset.sort;
-            if (State.sort.col === col) {
-                State.sort.dir = State.sort.dir === "asc" ? "desc" : "asc";
+            const additive = e.shiftKey;
+            const idx = State.sort.findIndex(s => s.col === col);
+            if (additive) {
+                // Shift+click: add as secondary, or toggle direction if already in stack
+                if (idx === -1) {
+                    State.sort.push({ col, dir: "asc" });
+                } else {
+                    State.sort[idx].dir = State.sort[idx].dir === "asc" ? "desc" : "asc";
+                }
             } else {
-                State.sort = { col, dir: "asc" };
+                // Plain click: reset to single sort, toggle dir if already primary
+                if (State.sort.length === 1 && State.sort[0].col === col) {
+                    State.sort = [{ col, dir: State.sort[0].dir === "asc" ? "desc" : "asc" }];
+                } else {
+                    State.sort = [{ col, dir: "asc" }];
+                }
             }
             renderDeckDetail();
         });
@@ -527,14 +539,23 @@ function numericCnKey(cn) {
     return [parseInt(m[1], 10), m[2].toLowerCase()];
 }
 
-function sortLines(lines, sort) {
-    const keyFn = SORT_KEYS[sort.col] || SORT_KEYS.card_number;
-    const out = lines.slice().sort((a, b) => {
-        const ka = keyFn(a), kb = keyFn(b);
-        const cmp = compareKeys(ka, kb);
-        return sort.dir === "desc" ? -cmp : cmp;
+function sortLines(lines, sortStack) {
+    /**
+     * Apply each sort key in order: primary first; ties broken by secondary, etc.
+     * `sortStack` is an array of { col, dir }.
+     */
+    const stack = (sortStack && sortStack.length) ? sortStack : [{ col: "card_number", dir: "asc" }];
+    const keyFns = stack.map(s => ({
+        fn: SORT_KEYS[s.col] || SORT_KEYS.card_number,
+        sign: s.dir === "desc" ? -1 : 1,
+    }));
+    return lines.slice().sort((a, b) => {
+        for (const { fn, sign } of keyFns) {
+            const cmp = compareKeys(fn(a), fn(b));
+            if (cmp !== 0) return sign * cmp;
+        }
+        return 0;
     });
-    return out;
 }
 
 function compareKeys(a, b) {
@@ -552,8 +573,12 @@ function compareKeys(a, b) {
 }
 
 function sortIndicator(col) {
-    if (State.sort.col !== col) return '<span class="text-muted small ms-1">↕</span>';
-    return State.sort.dir === "asc" ? ' <span class="small">↑</span>' : ' <span class="small">↓</span>';
+    const idx = State.sort.findIndex(s => s.col === col);
+    if (idx === -1) return '<span class="text-muted small ms-1">↕</span>';
+    const s = State.sort[idx];
+    const arrow = s.dir === "asc" ? "↑" : "↓";
+    const rank = State.sort.length > 1 ? `<sup class="text-muted">${idx + 1}</sup>` : "";
+    return ` <span class="small">${arrow}${rank}</span>`;
 }
 
 function renderCardTable(plan) {
@@ -620,6 +645,7 @@ function renderCardTable(plan) {
               <strong>List $</strong> = market basis × rules (markup, floor, ceiling, rounding).
               <strong>Net</strong> = list price − platform fees (TCG ~12.75%, MP ~5%, eBay ~13.25%).
               eBay uses TCGPlayer market as a proxy until eBay scraping is wired up.
+              Click a column header to sort; <kbd>Shift</kbd>+click adds a secondary sort.
             </small>
         </div>`;
 }

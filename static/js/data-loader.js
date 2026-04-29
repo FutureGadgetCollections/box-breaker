@@ -15,22 +15,26 @@ const GCS_BUCKET = "collection-tracker-data";
 
 async function loadJsonData(filename) {
     // Cache-bust via per-load timestamp so fresh catalog pushes are
-    // visible without users needing a hard refresh. The data files
-    // are small and we only fetch at app startup, so the extra GitHub
-    // hits are immaterial.
+    // visible without users needing a hard refresh.
     const ts = Date.now();
     const ghUrl = `https://raw.githubusercontent.com/${DATA_REPO}/main/data/${filename}.json?t=${ts}`;
     const gcsUrl = `https://storage.googleapis.com/${GCS_BUCKET}/data/${filename}.json?t=${ts}`;
+    const errors = [];
+
     try {
         const r = await fetch(ghUrl, { cache: "no-cache" });
         if (r.ok) return await r.json();
-    } catch (_) { }
+        errors.push(`GH HTTP ${r.status}`);
+    } catch (e) { errors.push(`GH ${e.message}`); }
+
     try {
         const r = await fetch(gcsUrl, { cache: "no-cache" });
         if (r.ok) return await r.json();
-    } catch (_) { }
-    console.error(`[data-loader] failed to load ${filename}`);
-    return null;
+        errors.push(`GCS HTTP ${r.status}`);
+    } catch (e) { errors.push(`GCS ${e.message}`); }
+
+    console.error(`[data-loader] ${filename}: ${errors.join(" | ")}`);
+    return { __failed: filename, __errors: errors };
 }
 
 const Cache = {
@@ -56,6 +60,17 @@ async function loadAll() {
         loadJsonData("manapool-skus"),
         loadJsonData("tcgplayer-skus"),
     ]);
+
+    // Surface which file(s) failed so the user can see it in the UI.
+    const fetched = { sealed, deckLists, cards, tcg, mp, mpSkus, tcgSkus };
+    const failed = Object.entries(fetched)
+        .filter(([_, v]) => v && v.__failed)
+        .map(([_, v]) => `${v.__failed} (${v.__errors.join(", ")})`);
+    if (failed.length) {
+        const e = new Error(`failed to load: ${failed.join("; ")}`);
+        e.failed = failed;
+        throw e;
+    }
 
     Cache.sealed = sealed || [];
     Cache.deckLists = deckLists || [];
